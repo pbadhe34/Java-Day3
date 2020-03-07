@@ -1,0 +1,85 @@
+import java.sql.Connection;
+import java.sql.SQLException;
+
+
+public class PooledConnection implements Connection
+{
+   // private ConnectionPool _pool;
+    private Connection _cxt;
+    
+    public void commit() throws SQLException
+    {
+        getConnection().commit();
+    }
+    
+    public synchronized Connection getConnection()   throws SQLException
+    		{
+    		    while (true)
+    		    {
+    		        /*if (_pool.size() > 0)
+    		            return wrapConnection(_pool.remove());
+    		        else*/
+    		        {
+    		            try
+    		            {
+    		                Reference<?> ref = _refQueue.remove(100);
+    		                if (ref != null)
+    		                    releaseConnection(ref);
+    		            }
+    		            catch (InterruptedException ignored)
+    		            {
+    		                // this could be used to shut down pool
+    		            }
+    		        }
+    		    }
+    		}
+    
+    private Queue<Connection> _pool
+    = new LinkedList<Connection>();
+
+private ReferenceQueue<Object> _refQueue
+    = new ReferenceQueue<Object>();
+
+private IdentityHashMap<Object,Connection> _ref2Cxt
+    = new IdentityHashMap<Object,Connection>();
+
+private IdentityHashMap<Connection,Object> _cxt2Ref =
+    new IdentityHashMap<Connection,Object>();
+
+private synchronized Connection wrapConnection(Connection cxt)
+{
+    Connection wrapped = new PooledConnection(this, cxt);
+    PhantomReference<Connection> ref = new PhantomReference<Connection>(wrapped, _refQueue);
+    _cxt2Ref.put(cxt, ref);
+    _ref2Cxt.put(ref, cxt);
+    return wrapped;
+}
+
+
+synchronized void releaseConnection(Reference<?> ref)
+{
+    Connection cxt = _ref2Cxt.remove(ref);
+    if (cxt != null)
+        releaseConnection(cxt);
+}
+
+synchronized void releaseConnection(Connection cxt)
+{
+    Object ref = _cxt2Ref.remove(cxt);
+    _ref2Cxt.remove(ref);
+    _pool.offer(cxt);
+    System.err.println("Released connection " + cxt);
+}
+
+
+
+public void close() throws SQLException
+{
+    if (_cxt != null)
+    {
+        _pool.releaseConnection(_cxt);
+        _cxt = null;
+    }
+}
+
+}
